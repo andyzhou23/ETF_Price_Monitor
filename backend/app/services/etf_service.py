@@ -103,8 +103,9 @@ def process_etf_upload(name: str, file_content: bytes) -> ETFResponse:
 
     etf_id = _hash_constituents(df)
 
-    # Precompute and cache all results
-    _compute_and_cache(etf_id, df)
+    # Skip recomputation if cache already exists
+    if not redis_cache.get(f"etf:{etf_id}:constituents"):
+        _compute_and_cache(etf_id, df)
 
     return ETFResponse(id=etf_id, name=name, constituent_count=len(df))
 
