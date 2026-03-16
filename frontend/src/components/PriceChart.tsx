@@ -51,7 +51,13 @@ export const PriceChart: React.FC<PriceChartProps> = ({ etfId }) => {
             <YAxis domain={['auto', 'auto']} />
             <Tooltip formatter={(value: number) => [`$${value}`, 'Price']} />
             <Line type="monotone" dataKey="price" stroke="#1890ff" dot={false} strokeWidth={2} />
-            <Brush dataKey="date" height={30} stroke="#1890ff" />
+            <Brush
+              dataKey="date"
+              height={30}
+              stroke="#1890ff"
+              startIndex={Math.max(0, data.length - 30)}
+              endIndex={data.length - 1}
+            />
           </LineChart>
         </ResponsiveContainer>
       </div>
