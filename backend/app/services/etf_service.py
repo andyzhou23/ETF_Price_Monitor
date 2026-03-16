@@ -87,24 +87,24 @@ def process_etf_upload(name: str, file_content: bytes) -> ETFResponse:
     if 'name' not in df.columns or 'weight' not in df.columns:
         raise HTTPException(status_code=400, detail="CSV must contain 'name' and 'weight' columns")
 
-    conn = get_db_connection()
-    c = conn.cursor()
-
-    # Validate constituents exist in prices
-    c.execute('SELECT DISTINCT name FROM constituent_prices')
-    valid_names = set(row['name'] for row in c.fetchall())
-    conn.close()
-
-    provided_names = set(df['name'].unique())
-    invalid_names = provided_names - valid_names
-
-    if invalid_names:
-        raise HTTPException(status_code=400, detail=f"Unknown constituents: {', '.join(invalid_names)}")
-
     etf_id = _hash_constituents(df)
 
-    # Skip recomputation if cache already exists
-    if not redis_cache.get(f"etf:{etf_id}:constituents"):
+    # Skip validation and recomputation if cache already exists
+    if not redis_cache.exists(f"etf:{etf_id}:constituents"):
+        conn = get_db_connection()
+        c = conn.cursor()
+
+        # Validate constituents exist in prices
+        c.execute('SELECT DISTINCT name FROM constituent_prices')
+        valid_names = set(row['name'] for row in c.fetchall())
+        conn.close()
+
+        provided_names = set(df['name'].unique())
+        invalid_names = provided_names - valid_names
+
+        if invalid_names:
+            raise HTTPException(status_code=400, detail=f"Unknown constituents: {', '.join(invalid_names)}")
+
         _compute_and_cache(etf_id, df)
 
     return ETFResponse(id=etf_id, name=name, constituent_count=len(df))

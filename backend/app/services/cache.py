@@ -22,16 +22,11 @@ class RedisCache:
         except Exception as e:
             print("Redis set error:", e)
 
-    def invalidate_etf(self, etf_id: str):
-        keys = [
-            f"etf:{etf_id}:constituents",
-            f"etf:{etf_id}:price_history",
-            f"etf:{etf_id}:top_holdings"
-        ]
+    def exists(self, key: str) -> bool:
         try:
-            if keys:
-                self.redis_client.delete(*keys)
+            return bool(self.redis_client.exists(key))
         except Exception as e:
-            print("Redis invalidate error:", e)
+            print("Redis exists error:", e)
+        return False
 
 redis_cache = RedisCache()

@@ -100,7 +100,8 @@ The application follows a three-tier architecture deployed as three Docker conta
 
 - On upload, the backend precomputes and caches all three result sets in Redis keyed by the ETF content hash (e.g. `etf:a3f1b2c4d5e6f7a8:price_history`).
 - Uploading the same constituent composition produces the same hash, refreshing the cache.
-- TTL: 1 hour. Since the underlying price data is historical and static, cache staleness is not a concern. If cache expires, re-uploading the CSV recomputes and re-caches.
+- TTL: 1 hour. Since the underlying price data is historical and static, cache staleness is not a concern. If cache expires or is evicted, re-uploading the CSV recomputes and re-caches.
+- Redis is configured with `maxmemory 64mb` and `allkeys-lru` eviction policy, so least-recently-used entries are evicted when memory is full.
 
 ---
 
