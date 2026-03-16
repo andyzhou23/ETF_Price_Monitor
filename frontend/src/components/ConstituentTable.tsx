@@ -58,6 +58,7 @@ export const ConstituentTable: React.FC<ConstituentTableProps> = ({ etfId }) => 
         rowKey="name" 
         loading={loading}
         pagination={{ pageSize: 10 }}
+        locale={{ emptyText: 'No constituents available' }}
       />
     </Card>
   );

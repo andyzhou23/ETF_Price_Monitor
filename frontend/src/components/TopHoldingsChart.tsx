@@ -46,6 +46,11 @@ export const TopHoldingsChart: React.FC<TopHoldingsChartProps> = ({ etfId }) => 
   return (
     <Card title="Top 5 Holdings by Value" style={{ marginBottom: 20 }} loading={loading}>
       <div style={{ width: '100%', height: 400 }}>
+        {!loading && data.length === 0 ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#999' }}>
+            No holdings data available
+          </div>
+        ) : (
         <ResponsiveContainer>
           <BarChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" />
@@ -59,6 +64,7 @@ export const TopHoldingsChart: React.FC<TopHoldingsChartProps> = ({ etfId }) => 
             </Bar>
           </BarChart>
         </ResponsiveContainer>
+        )}
       </div>
     </Card>
   );
