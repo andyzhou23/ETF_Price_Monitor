@@ -1,9 +1,18 @@
+import hashlib
 import pandas as pd
 from io import StringIO
 from fastapi import HTTPException
 from ..database import get_db_connection
 from ..models import ETFResponse, ConstituentModel, PriceDateModel, TopHoldingModel
 from .cache import redis_cache
+
+
+def _hash_constituents(df: pd.DataFrame) -> str:
+    """Hash sorted name:weight pairs to produce a deterministic ETF id."""
+    pairs = sorted(zip(df['name'], df['weight']))
+    key = "|".join(f"{n}:{w}" for n, w in pairs)
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
+
 
 def process_etf_upload(name: str, file_content: bytes) -> ETFResponse:
     try:
@@ -28,19 +37,27 @@ def process_etf_upload(name: str, file_content: bytes) -> ETFResponse:
         conn.close()
         raise HTTPException(status_code=400, detail=f"Unknown constituents: {', '.join(invalid_names)}")
 
+    etf_id = _hash_constituents(df)
+
+    # Check if this ETF already exists
+    c.execute('SELECT id FROM etfs WHERE id = ?', (etf_id,))
+    existing = c.fetchone()
+
+    if existing:
+        conn.close()
+        constituent_count = len(df)
+        return ETFResponse(id=etf_id, name=name, constituent_count=constituent_count)
+
     # Insert ETF definition
-    c.execute('INSERT INTO etfs (name) VALUES (?)', (name,))
-    etf_id = c.lastrowid
+    c.execute('INSERT INTO etfs (id, name) VALUES (?, ?)', (etf_id, name))
 
     # Insert constituents
     constituents_data = [(etf_id, row['name'], row['weight']) for _, row in df.iterrows()]
     c.executemany('INSERT INTO etf_constituents (etf_id, name, weight) VALUES (?, ?, ?)', constituents_data)
-    
+
     conn.commit()
     conn.close()
 
-    # Invalidate cache if replacing ETF? Spec says "invalidated when uploaded with same name", but we just create a new ETF definition for simplicity
-    
     return ETFResponse(id=etf_id, name=name, constituent_count=len(constituents_data))
 
 def get_etf_constituents(etf_id: int) -> list[ConstituentModel]:

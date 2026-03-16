@@ -3,7 +3,7 @@ import { Table, Card } from 'antd';
 import { apiClient, Constituent } from '../api/client';
 
 interface ConstituentTableProps {
-  etfId: number;
+  etfId: string;
 }
 
 export const ConstituentTable: React.FC<ConstituentTableProps> = ({ etfId }) => {

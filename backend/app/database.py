@@ -28,7 +28,7 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_prices_date ON constituent_prices(date);
 
         CREATE TABLE IF NOT EXISTS etfs (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            id         TEXT    PRIMARY KEY,
             name       TEXT    NOT NULL,
             created_at TEXT    NOT NULL DEFAULT (datetime('now'))
         );

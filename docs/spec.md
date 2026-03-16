@@ -52,6 +52,7 @@ Sample files (`ETF1.csv`, `ETF2.csv`) are provided in `data/` for reference only
 
 - User uploads an ETF definition CSV (any file following the `name,weight` schema) via a file input.
 - Backend parses the CSV (columns: `name`, `weight`), validates that all constituent names exist in the database, and stores the ETF definition.
+- The ETF id is a SHA-256 hash (truncated to 16 hex chars) of the sorted `name:weight` pairs. Uploading the same constituents with the same weights returns the existing ETF (idempotent).
 - On success, the frontend receives the ETF id and refreshes all views.
 
 ### F2 — Constituents Table
@@ -100,7 +101,7 @@ The application follows a three-tier architecture deployed as three Docker conta
 ### Caching Strategy
 
 - Redis caches computed results keyed by ETF id (e.g. `etf:1:price_history`).
-- Cache entries for a given ETF are invalidated when a new ETF CSV is uploaded with the same name.
+- Uploading the same constituent composition returns the existing ETF id, so cached results are naturally reused.
 - TTL: 1 hour. Since the underlying price data is historical and static, cache staleness is not a concern.
 
 ---
@@ -115,7 +116,7 @@ Upload an ETF definition CSV.
 - **Response** `201`:
   ```json
   {
-    "id": 1,
+    "id": "a3f1b2c4d5e6f7a8",
     "name": "ETF1",
     "constituent_count": 25
   }
@@ -184,7 +185,7 @@ CREATE INDEX idx_prices_name ON constituent_prices(name);
 CREATE INDEX idx_prices_date ON constituent_prices(date);
 
 CREATE TABLE etfs (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    id         TEXT    PRIMARY KEY,  -- SHA-256 hash of sorted name:weight pairs
     name       TEXT    NOT NULL,
     created_at TEXT    NOT NULL DEFAULT (datetime('now'))
 );

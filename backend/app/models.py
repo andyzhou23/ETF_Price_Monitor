@@ -17,6 +17,6 @@ class TopHoldingModel(BaseModel):
     holding_value: float
 
 class ETFResponse(BaseModel):
-    id: int
+    id: str
     name: str
     constituent_count: int

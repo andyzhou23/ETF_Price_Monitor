@@ -25,7 +25,7 @@ export interface TopHolding {
 }
 
 export interface ETF {
-  id: number;
+  id: string;
   name: string;
   constituent_count: number;
 }

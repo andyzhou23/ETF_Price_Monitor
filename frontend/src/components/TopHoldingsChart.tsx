@@ -13,7 +13,7 @@ import {
 import { apiClient, TopHolding } from '../api/client';
 
 interface TopHoldingsChartProps {
-  etfId: number;
+  etfId: string;
 }
 
 const COLORS = ['#1890ff', '#13c2c2', '#52c41a', '#fadb14', '#fa8c16'];

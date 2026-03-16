@@ -12,13 +12,13 @@ async def upload_etf(file: UploadFile = File(...)):
     return etf_service.process_etf_upload(name, content)
 
 @router.get("/{id}/constituents", response_model=List[ConstituentModel])
-def get_constituents(id: int):
+def get_constituents(id: str):
     return etf_service.get_etf_constituents(id)
 
 @router.get("/{id}/price-history", response_model=List[PriceDateModel])
-def get_price_history(id: int):
+def get_price_history(id: str):
     return etf_service.get_etf_price_history(id)
 
 @router.get("/{id}/top-holdings", response_model=List[TopHoldingModel])
-def get_top_holdings(id: int):
+def get_top_holdings(id: str):
     return etf_service.get_etf_top_holdings(id)

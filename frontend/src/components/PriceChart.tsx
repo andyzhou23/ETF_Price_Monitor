@@ -13,7 +13,7 @@ import {
 import { apiClient, PriceHistory } from '../api/client';
 
 interface PriceChartProps {
-  etfId: number;
+  etfId: string;
 }
 
 export const PriceChart: React.FC<PriceChartProps> = ({ etfId }) => {
