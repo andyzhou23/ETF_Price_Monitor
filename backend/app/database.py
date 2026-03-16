@@ -26,20 +26,6 @@ def init_db():
 
         CREATE INDEX IF NOT EXISTS idx_prices_name ON constituent_prices(name);
         CREATE INDEX IF NOT EXISTS idx_prices_date ON constituent_prices(date);
-
-        CREATE TABLE IF NOT EXISTS etfs (
-            id         TEXT    PRIMARY KEY,
-            name       TEXT    NOT NULL,
-            created_at TEXT    NOT NULL DEFAULT (datetime('now'))
-        );
-
-        CREATE TABLE IF NOT EXISTS etf_constituents (
-            id     INTEGER PRIMARY KEY AUTOINCREMENT,
-            etf_id INTEGER NOT NULL REFERENCES etfs(id) ON DELETE CASCADE,
-            name   TEXT    NOT NULL,
-            weight REAL    NOT NULL,
-            UNIQUE(etf_id, name)
-        );
     ''')
     conn.commit()
 

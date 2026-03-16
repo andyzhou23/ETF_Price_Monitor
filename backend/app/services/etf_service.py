@@ -14,10 +14,74 @@ def _hash_constituents(df: pd.DataFrame) -> str:
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
+def _compute_and_cache(etf_id: str, df: pd.DataFrame):
+    """Compute constituents, price history, and top holdings, then cache all."""
+    conn = get_db_connection()
+    c = conn.cursor()
+
+    names = df['name'].tolist()
+    placeholders = ','.join('?' * len(names))
+
+    # Latest prices for constituents
+    c.execute(f'''
+        SELECT name, close_price as latest_price
+        FROM constituent_prices
+        WHERE date = (SELECT MAX(date) FROM constituent_prices)
+        AND name IN ({placeholders})
+    ''', names)
+    latest_prices = {row['name']: row['latest_price'] for row in c.fetchall()}
+
+    # Constituents table
+    constituents = []
+    for _, row in df.iterrows():
+        constituents.append(ConstituentModel(
+            name=row['name'],
+            weight=row['weight'],
+            latest_price=latest_prices.get(row['name'], 0.0),
+        ))
+    redis_cache.set(f"etf:{etf_id}:constituents",
+                    [r.model_dump() for r in constituents])
+
+    # Price history
+    c.execute(f'''
+        SELECT date, name, close_price
+        FROM constituent_prices
+        WHERE name IN ({placeholders})
+        ORDER BY date ASC
+    ''', names)
+    rows = c.fetchall()
+    conn.close()
+
+    weights = {row['name']: row['weight'] for _, row in df.iterrows()}
+    date_prices: dict[str, float] = {}
+    for row in rows:
+        d = row['date']
+        date_prices[d] = date_prices.get(d, 0.0) + weights[row['name']] * row['close_price']
+
+    price_history = [PriceDateModel(date=d, price=p) for d, p in sorted(date_prices.items())]
+    redis_cache.set(f"etf:{etf_id}:price_history",
+                    [r.model_dump() for r in price_history])
+
+    # Top 5 holdings
+    holdings = []
+    for _, row in df.iterrows():
+        lp = latest_prices.get(row['name'], 0.0)
+        holdings.append(TopHoldingModel(
+            name=row['name'],
+            weight=row['weight'],
+            latest_price=lp,
+            holding_value=row['weight'] * lp,
+        ))
+    holdings.sort(key=lambda h: h.holding_value, reverse=True)
+    top5 = holdings[:5]
+    redis_cache.set(f"etf:{etf_id}:top_holdings",
+                    [r.model_dump() for r in top5])
+
+
 def process_etf_upload(name: str, file_content: bytes) -> ETFResponse:
     try:
         df = pd.read_csv(StringIO(file_content.decode('utf-8')))
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid CSV format")
 
     if 'name' not in df.columns or 'weight' not in df.columns:
@@ -29,125 +93,38 @@ def process_etf_upload(name: str, file_content: bytes) -> ETFResponse:
     # Validate constituents exist in prices
     c.execute('SELECT DISTINCT name FROM constituent_prices')
     valid_names = set(row['name'] for row in c.fetchall())
+    conn.close()
 
     provided_names = set(df['name'].unique())
     invalid_names = provided_names - valid_names
 
     if invalid_names:
-        conn.close()
         raise HTTPException(status_code=400, detail=f"Unknown constituents: {', '.join(invalid_names)}")
 
     etf_id = _hash_constituents(df)
 
-    # Check if this ETF already exists
-    c.execute('SELECT id FROM etfs WHERE id = ?', (etf_id,))
-    existing = c.fetchone()
+    # Precompute and cache all results
+    _compute_and_cache(etf_id, df)
 
-    if existing:
-        conn.close()
-        constituent_count = len(df)
-        return ETFResponse(id=etf_id, name=name, constituent_count=constituent_count)
+    return ETFResponse(id=etf_id, name=name, constituent_count=len(df))
 
-    # Insert ETF definition
-    c.execute('INSERT INTO etfs (id, name) VALUES (?, ?)', (etf_id, name))
 
-    # Insert constituents
-    constituents_data = [(etf_id, row['name'], row['weight']) for _, row in df.iterrows()]
-    c.executemany('INSERT INTO etf_constituents (etf_id, name, weight) VALUES (?, ?, ?)', constituents_data)
-
-    conn.commit()
-    conn.close()
-
-    return ETFResponse(id=etf_id, name=name, constituent_count=len(constituents_data))
-
-def get_etf_constituents(etf_id: int) -> list[ConstituentModel]:
-    cache_key = f"etf:{etf_id}:constituents"
-    cached = redis_cache.get(cache_key)
+def get_etf_constituents(etf_id: str) -> list[ConstituentModel]:
+    cached = redis_cache.get(f"etf:{etf_id}:constituents")
     if cached:
         return [ConstituentModel(**c) for c in cached]
+    raise HTTPException(status_code=404, detail="ETF not found — please re-upload the CSV")
 
-    conn = get_db_connection()
-    c = conn.cursor()
-    
-    query = '''
-    SELECT c.name, c.weight, p.close_price as latest_price
-    FROM etf_constituents c
-    JOIN (
-        SELECT name, close_price 
-        FROM constituent_prices 
-        WHERE date = (SELECT MAX(date) FROM constituent_prices)
-    ) p ON c.name = p.name
-    WHERE c.etf_id = ?
-    '''
-    c.execute(query, (etf_id,))
-    rows = c.fetchall()
-    conn.close()
 
-    if not rows:
-        raise HTTPException(status_code=404, detail="ETF not found or has no valid constituents")
-
-    result = [ConstituentModel(**dict(row)) for row in rows]
-    # Use mode_dump() in pydantic 2.x
-    redis_cache.set(cache_key, [r.model_dump() for r in result], ttl=3600)
-    return result
-
-def get_etf_price_history(etf_id: int) -> list[PriceDateModel]:
-    cache_key = f"etf:{etf_id}:price_history"
-    cached = redis_cache.get(cache_key)
+def get_etf_price_history(etf_id: str) -> list[PriceDateModel]:
+    cached = redis_cache.get(f"etf:{etf_id}:price_history")
     if cached:
         return [PriceDateModel(**p) for p in cached]
+    raise HTTPException(status_code=404, detail="ETF not found — please re-upload the CSV")
 
-    conn = get_db_connection()
-    c = conn.cursor()
 
-    query = '''
-    SELECT p.date, SUM(c.weight * p.close_price) as price
-    FROM etf_constituents c
-    JOIN constituent_prices p ON c.name = p.name
-    WHERE c.etf_id = ?
-    GROUP BY p.date
-    ORDER BY p.date ASC
-    '''
-    c.execute(query, (etf_id,))
-    rows = c.fetchall()
-    conn.close()
-
-    if not rows:
-        raise HTTPException(status_code=404, detail="ETF not found or has no history")
-
-    result = [PriceDateModel(**dict(row)) for row in rows]
-    redis_cache.set(cache_key, [r.model_dump() for r in result], ttl=3600)
-    return result
-
-def get_etf_top_holdings(etf_id: int) -> list[TopHoldingModel]:
-    cache_key = f"etf:{etf_id}:top_holdings"
-    cached = redis_cache.get(cache_key)
+def get_etf_top_holdings(etf_id: str) -> list[TopHoldingModel]:
+    cached = redis_cache.get(f"etf:{etf_id}:top_holdings")
     if cached:
         return [TopHoldingModel(**h) for h in cached]
-
-    conn = get_db_connection()
-    c = conn.cursor()
-
-    query = '''
-    SELECT c.name, c.weight, p.close_price as latest_price, 
-           (c.weight * p.close_price) as holding_value
-    FROM etf_constituents c
-    JOIN (
-        SELECT name, close_price 
-        FROM constituent_prices 
-        WHERE date = (SELECT MAX(date) FROM constituent_prices)
-    ) p ON c.name = p.name
-    WHERE c.etf_id = ?
-    ORDER BY holding_value DESC
-    LIMIT 5
-    '''
-    c.execute(query, (etf_id,))
-    rows = c.fetchall()
-    conn.close()
-
-    if not rows:
-        raise HTTPException(status_code=404, detail="ETF not found")
-
-    result = [TopHoldingModel(**dict(row)) for row in rows]
-    redis_cache.set(cache_key, [r.model_dump() for r in result], ttl=3600)
-    return result
+    raise HTTPException(status_code=404, detail="ETF not found — please re-upload the CSV")

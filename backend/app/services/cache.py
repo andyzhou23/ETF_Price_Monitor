@@ -22,7 +22,7 @@ class RedisCache:
         except Exception as e:
             print("Redis set error:", e)
 
-    def invalidate_etf(self, etf_id: int):
+    def invalidate_etf(self, etf_id: str):
         keys = [
             f"etf:{etf_id}:constituents",
             f"etf:{etf_id}:price_history",
