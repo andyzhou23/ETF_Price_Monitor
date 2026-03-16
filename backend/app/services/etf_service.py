@@ -50,8 +50,6 @@ def _compute_and_cache(etf_id: str, df: pd.DataFrame):
         ORDER BY date ASC
     ''', names)
     rows = c.fetchall()
-    conn.close()
-
     weights = {row['name']: row['weight'] for _, row in df.iterrows()}
     date_prices: dict[str, float] = {}
     for row in rows:
@@ -97,7 +95,6 @@ def process_etf_upload(name: str, file_content: bytes) -> ETFResponse:
         # Validate constituents exist in prices
         c.execute('SELECT DISTINCT name FROM constituent_prices')
         valid_names = set(row['name'] for row in c.fetchall())
-        conn.close()
 
         provided_names = set(df['name'].unique())
         invalid_names = provided_names - valid_names
