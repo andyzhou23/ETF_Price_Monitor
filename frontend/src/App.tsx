@@ -8,7 +8,7 @@ import { ETF } from './api/client';
 
 import 'antd/dist/reset.css'; // Add Ant Design reset styles if 5.x
 
-const { Header, Content, Footer } = Layout;
+const { Header, Content } = Layout;
 const { Title } = Typography;
 
 const App: React.FC = () => {
