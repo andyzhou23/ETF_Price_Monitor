@@ -13,10 +13,10 @@ This project is a single-page web application that allows users to monitor histo
 
 ## Architecture
 
-*   **Frontend**: React (Vite + TypeScript) displaying charts and interactive tables.
-*   **Backend**: Python FastAPI serving API endpoints, managing valid ETF data.
-*   **Database**: SQLite to persist the required historical prices and ETF definitions.
-*   **Cache**: Redis to cache expensive computations (e.g. price aggregation, holdings).
+*   **Frontend**: React 18 (Vite + TypeScript) with Ant Design for UI components (tables, layout, file upload) and Recharts for data visualization (line chart with brush zoom for time series, bar chart for top holdings). Axios handles API communication.
+*   **Backend**: Python FastAPI with Uvicorn ASGI server. Pandas is used for CSV parsing and data manipulation. Pydantic handles request/response validation.
+*   **Database**: SQLite for persistent storage of constituent price history and ETF definitions.
+*   **Cache**: Redis (cache-aside pattern) to cache computed ETF results. On cache miss, results are recomputed from SQLite.
 
 ## How to Run
 
