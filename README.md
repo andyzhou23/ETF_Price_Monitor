@@ -2,6 +2,15 @@
 
 This project is a single-page web application that allows users to monitor historical prices for an ETF and its top holdings. It's built with React, FastAPI, SQLite, and Redis, designed to run with Docker Compose.
 
+## Assumptions
+
+*   Constituent price data is static and pre-loaded at startup (100 trading days, 26 tickers).
+*   An ETF is uniquely identified by its constituents and their weights, not by its filename. Uploading the same composition produces the same ETF ID regardless of the file used.
+*   Constituent weights are static and do not change over time.
+*   ETF price at time *t* is the weighted sum of constituent prices: sum(weight_i * price_i(t)).
+*   All constituents share the same set of trading dates (no missing data).
+*   No authentication is required.
+
 ## Architecture
 
 *   **Frontend**: React (Vite + TypeScript) displaying charts and interactive tables.
