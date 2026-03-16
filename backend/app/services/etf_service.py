@@ -31,14 +31,13 @@ def _compute_and_cache(etf_id: str, df: pd.DataFrame):
     ''', names)
     latest_prices = {row['name']: row['latest_price'] for row in c.fetchall()}
 
+    weights = dict(zip(df['name'], df['weight']))
+
     # Constituents table
-    constituents = []
-    for _, row in df.iterrows():
-        constituents.append(ConstituentModel(
-            name=row['name'],
-            weight=row['weight'],
-            latest_price=latest_prices.get(row['name'], 0.0),
-        ))
+    constituents = [
+        ConstituentModel(name=n, weight=w, latest_price=latest_prices.get(n, 0.0))
+        for n, w in weights.items()
+    ]
     redis_cache.set(f"etf:{etf_id}:constituents",
                     [r.model_dump() for r in constituents])
 
@@ -50,7 +49,6 @@ def _compute_and_cache(etf_id: str, df: pd.DataFrame):
         ORDER BY date ASC
     ''', names)
     rows = c.fetchall()
-    weights = {row['name']: row['weight'] for _, row in df.iterrows()}
     date_prices: dict[str, float] = {}
     for row in rows:
         d = row['date']
@@ -61,19 +59,14 @@ def _compute_and_cache(etf_id: str, df: pd.DataFrame):
                     [r.model_dump() for r in price_history])
 
     # Top 5 holdings
-    holdings = []
-    for _, row in df.iterrows():
-        lp = latest_prices.get(row['name'], 0.0)
-        holdings.append(TopHoldingModel(
-            name=row['name'],
-            weight=row['weight'],
-            latest_price=lp,
-            holding_value=row['weight'] * lp,
-        ))
+    holdings = [
+        TopHoldingModel(name=n, weight=w, latest_price=lp, holding_value=w * lp)
+        for n, w in weights.items()
+        for lp in [latest_prices.get(n, 0.0)]
+    ]
     holdings.sort(key=lambda h: h.holding_value, reverse=True)
-    top5 = holdings[:5]
     redis_cache.set(f"etf:{etf_id}:top_holdings",
-                    [r.model_dump() for r in top5])
+                    [r.model_dump() for r in holdings[:5]])
 
 
 def process_etf_upload(name: str, file_content: bytes) -> ETFResponse:
