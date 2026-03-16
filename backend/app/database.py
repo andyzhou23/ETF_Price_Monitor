@@ -29,6 +29,13 @@ def init_db():
 
         CREATE INDEX IF NOT EXISTS idx_prices_name ON constituent_prices(name);
         CREATE INDEX IF NOT EXISTS idx_prices_date ON constituent_prices(date);
+
+        CREATE TABLE IF NOT EXISTS etf_definitions (
+            etf_id TEXT NOT NULL,
+            name   TEXT NOT NULL,
+            weight REAL NOT NULL,
+            PRIMARY KEY (etf_id, name)
+        );
     ''')
     conn.commit()
 

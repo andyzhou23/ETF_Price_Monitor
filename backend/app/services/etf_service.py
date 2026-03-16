@@ -14,7 +14,30 @@ def _hash_constituents(df: pd.DataFrame) -> str:
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
-def _compute_and_cache(etf_id: str, df: pd.DataFrame):
+def _save_etf_definition(etf_id: str, df: pd.DataFrame):
+    """Persist ETF constituent weights to SQLite."""
+    conn = get_db_connection()
+    c = conn.cursor()
+    rows = [(etf_id, row['name'], row['weight']) for _, row in df.iterrows()]
+    c.executemany(
+        'INSERT OR IGNORE INTO etf_definitions (etf_id, name, weight) VALUES (?, ?, ?)',
+        rows
+    )
+    conn.commit()
+
+
+def _load_etf_definition(etf_id: str) -> pd.DataFrame | None:
+    """Load ETF constituent weights from SQLite. Returns None if not found."""
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute('SELECT name, weight FROM etf_definitions WHERE etf_id = ?', (etf_id,))
+    rows = c.fetchall()
+    if not rows:
+        return None
+    return pd.DataFrame([dict(row) for row in rows])
+
+
+def _compute_and_cache(etf_id: str, df: pd.DataFrame) -> dict:
     """Compute constituents, price history, and top holdings, then cache all."""
     conn = get_db_connection()
     c = conn.cursor()
@@ -68,6 +91,12 @@ def _compute_and_cache(etf_id: str, df: pd.DataFrame):
     redis_cache.set(f"etf:{etf_id}:top_holdings",
                     [r.model_dump() for r in holdings[:5]])
 
+    return {
+        "constituents": constituents,
+        "price_history": price_history,
+        "top_holdings": holdings[:5],
+    }
+
 
 def process_etf_upload(name: str, file_content: bytes) -> ETFResponse:
     try:
@@ -80,7 +109,7 @@ def process_etf_upload(name: str, file_content: bytes) -> ETFResponse:
 
     etf_id = _hash_constituents(df)
 
-    # Skip validation and recomputation if cache already exists
+    # Skip recomputation if cache already exists
     if not redis_cache.exists(f"etf:{etf_id}:constituents"):
         conn = get_db_connection()
         c = conn.cursor()
@@ -95,27 +124,49 @@ def process_etf_upload(name: str, file_content: bytes) -> ETFResponse:
         if invalid_names:
             raise HTTPException(status_code=400, detail=f"Unknown constituents: {', '.join(invalid_names)}")
 
+        # Persist to DB after validation (INSERT OR IGNORE is idempotent)
+        _save_etf_definition(etf_id, df)
         _compute_and_cache(etf_id, df)
+    else:
+        # Cache exists — still ensure DB is in sync (cheap, idempotent)
+        _save_etf_definition(etf_id, df)
 
     return ETFResponse(id=etf_id, name=name, constituent_count=len(df))
+
+
+def _recompute_from_db(etf_id: str) -> dict | None:
+    """Load ETF definition from DB and recompute. Returns None if not in DB."""
+    df = _load_etf_definition(etf_id)
+    if df is None:
+        return None
+    return _compute_and_cache(etf_id, df)
 
 
 def get_etf_constituents(etf_id: str) -> list[ConstituentModel]:
     cached = redis_cache.get(f"etf:{etf_id}:constituents")
     if cached:
         return [ConstituentModel(**c) for c in cached]
-    raise HTTPException(status_code=404, detail="ETF not found — please re-upload the CSV")
+    result = _recompute_from_db(etf_id)
+    if result:
+        return result["constituents"]
+    raise HTTPException(status_code=404, detail="ETF not found")
 
 
 def get_etf_price_history(etf_id: str) -> list[PriceDateModel]:
     cached = redis_cache.get(f"etf:{etf_id}:price_history")
     if cached:
         return [PriceDateModel(**p) for p in cached]
-    raise HTTPException(status_code=404, detail="ETF not found — please re-upload the CSV")
+    result = _recompute_from_db(etf_id)
+    if result:
+        return result["price_history"]
+    raise HTTPException(status_code=404, detail="ETF not found")
 
 
 def get_etf_top_holdings(etf_id: str) -> list[TopHoldingModel]:
     cached = redis_cache.get(f"etf:{etf_id}:top_holdings")
     if cached:
         return [TopHoldingModel(**h) for h in cached]
-    raise HTTPException(status_code=404, detail="ETF not found — please re-upload the CSV")
+    result = _recompute_from_db(etf_id)
+    if result:
+        return result["top_holdings"]
+    raise HTTPException(status_code=404, detail="ETF not found")

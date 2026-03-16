@@ -86,21 +86,21 @@ The application follows a three-tier architecture deployed as three Docker conta
 
 **Backend (FastAPI, port 8000)** — A Python FastAPI server responsible for CSV parsing, data validation, ETF price computation, and serving all API endpoints. It connects to both SQLite for persistent storage and Redis for caching. CORS is configured to allow requests from the frontend origin.
 
-**SQLite (file-based)** — Stores constituent price history only (seeded from the prices CSV at startup). ETF definitions are not persisted in SQLite. The database file is persisted via a Docker volume mount so data survives container restarts.
+**SQLite (file-based)** — Stores constituent price history (seeded from the prices CSV at startup) and ETF definitions (constituent weights, persisted on upload). The database file is persisted via a Docker volume mount so data survives container restarts.
 
-**Redis (port 6379)** — Stores all precomputed ETF results (constituent tables, price history, top holdings) keyed by the ETF's content hash. On upload, the backend computes all results and caches them; GET endpoints serve directly from Redis.
+**Redis (port 6379)** — Caches precomputed ETF results (constituent tables, price history, top holdings) keyed by the ETF's content hash. On upload, the backend computes all results and caches them. GET endpoints serve from Redis when available; on cache miss, results are recomputed from the ETF definitions stored in SQLite.
 
 ### Data Flow
 
 1. **Startup** — The backend reads the bundled `prices.csv` and seeds the `constituent_prices` table in SQLite (skipped if already populated). This loads 100 daily prices for 26 constituents (A–Z) spanning 2017-01-01 to 2017-04-10.
-2. **Upload** — The user selects an ETF CSV file in the frontend. The frontend POSTs it to `/api/etfs/upload`. The backend parses the `name` and `weight` columns, validates that every constituent name exists in the database, computes a content hash as the ETF id, precomputes all results (constituents table, price history, top 5 holdings) using the uploaded weights + SQLite prices, caches them in Redis, and returns the ETF metadata.
-3. **Table / Time Series / Bar Chart** — The frontend GETs `/api/etfs/{id}/...`. The backend serves directly from Redis cache. If the cache has expired, the user must re-upload the CSV.
+2. **Upload** — The user selects an ETF CSV file in the frontend. The frontend POSTs it to `/api/etfs/upload`. The backend parses the `name` and `weight` columns, validates that every constituent name exists in the database, computes a content hash as the ETF id, persists the ETF definition (weights) to SQLite, precomputes all results (constituents table, price history, top 5 holdings) using the uploaded weights + SQLite prices, caches them in Redis, and returns the ETF metadata.
+3. **Table / Time Series / Bar Chart** — The frontend GETs `/api/etfs/{id}/...`. The backend serves from Redis cache when available. On cache miss, results are recomputed from the ETF definition stored in SQLite and re-cached. A 404 is returned only if the ETF ID has never been uploaded.
 
 ### Caching Strategy
 
-- On upload, the backend precomputes and caches all three result sets in Redis keyed by the ETF content hash (e.g. `etf:a3f1b2c4d5e6f7a8:price_history`).
+- **Cache-aside pattern**: On upload, the backend precomputes and caches all three result sets in Redis keyed by the ETF content hash (e.g. `etf:a3f1b2c4d5e6f7a8:price_history`). On GET, results are served from Redis; on cache miss, they are recomputed from the ETF definition in SQLite and re-cached.
 - Uploading the same constituent composition produces the same hash, refreshing the cache.
-- TTL: 1 hour. Since the underlying price data is historical and static, cache staleness is not a concern. If cache expires or is evicted, re-uploading the CSV recomputes and re-caches.
+- TTL: 1 hour. Since the underlying price data is historical and static, cache staleness is not a concern.
 - Redis is configured with `maxmemory 64mb` and `allkeys-lru` eviction policy, so least-recently-used entries are evicted when memory is full.
 
 ---
@@ -182,9 +182,16 @@ CREATE TABLE constituent_prices (
 
 CREATE INDEX idx_prices_name ON constituent_prices(name);
 CREATE INDEX idx_prices_date ON constituent_prices(date);
+
+CREATE TABLE etf_definitions (
+    etf_id TEXT NOT NULL,
+    name   TEXT NOT NULL,
+    weight REAL NOT NULL,
+    PRIMARY KEY (etf_id, name)
+);
 ```
 
-ETF definitions are not stored in SQLite. They are computed on upload and cached in Redis.
+ETF definitions are persisted in SQLite on upload. They serve as the source of truth for recomputing cached results on Redis cache miss.
 
 ### Redis Keys
 
