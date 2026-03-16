@@ -1,0 +1,19 @@
+services:
+  backend:
+    build: ./backend
+    ports: ["8000:8000"]
+    volumes:
+      - ./data:/app/data
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_PATH=/app/data/etf.db
+      - PRICES_CSV=/app/data/prices.csv
+    depends_on: [redis]
+
+  frontend:
+    build: ./frontend
+    ports: ["5173:80"]
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
