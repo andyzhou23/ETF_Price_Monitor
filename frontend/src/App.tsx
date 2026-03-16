@@ -57,9 +57,6 @@ const App: React.FC = () => {
           )}
         </div>
       </Content>
-      <Footer style={{ textAlign: 'center' }}>
-        ETF Price Monitor ©{new Date().getFullYear()} Developed for Data Cognition Challenge
-      </Footer>
     </Layout>
   );
 };
